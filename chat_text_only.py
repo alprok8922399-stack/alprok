@@ -46,4 +46,9 @@ def loop():
 
 if __name__=="__main__":
     loop()
-  
+  if __name__ == "__main__":
+    if not check_paths("."):
+        print("Fix missing files/dirs and rerun.")
+        exit(1)
+    # существующий код запуска
+
