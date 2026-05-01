@@ -1,59 +1,231 @@
 #!/usr/bin/env python3
-# chat_text_only.py
-# Гибридный чат-бот: локальная логика/ML + опциональный облачный LLM
-# Требования: см. requirements.txt (логрег, joblib, sklearn, requests и т.д.)
+"""
+chat_text_only.py
+CLI + экспортируемые функции для загрузки модели, предсказаний и простого history/memory.
+Поддерживает: load_model, predict, llm_on, llm_off, save_memory, show_history, get_history, get_memory
+"""
 
 import os
 import sys
 import argparse
-import joblib
-import pickle
 import json
-from typing import Any, Dict, List, Optional
+import joblib
+import time
+from typing import Optional, Dict, Any, List
+from pathlib import Path
 
-# -----------------------
-# Параметры / пути (настройте под устройство)
-# -----------------------
-MODEL_DIR = "/storage/emulated/0/models"
-MODEL_FILENAME = "logreg_calibrated_model.pkl"
-MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
-MEMORY_PATH = "/storage/emulated/0/chat_memory.json"
-HISTORY_PATH = "/storage/emulated/0/chat_history.txt"
+# --------------------
+# Конфигурация путей
+# --------------------
+BASE_DIR = Path(__file__).resolve().parent
+# предполагаем запуск из корня репозитория: если файл в src/, поднимаемся на уровень выше
+if (BASE_DIR / "models").exists():
+    ROOT = BASE_DIR
+elif BASE_DIR.parent.exists() and (BASE_DIR.parent / "models").exists():
+    ROOT = BASE_DIR.parent
+else:
+    # по умолчанию - родитель каталога
+    ROOT = BASE_DIR
 
-# -----------------------
-# Утилиты
-# -----------------------
-def check_paths(root: str = ".") -> bool:
+MODELS_DIR = ROOT / "models"
+DATA_DIR = ROOT / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+HISTORY_FILE = DATA_DIR / "history.json"
+MEMORY_FILE = DATA_DIR / "memory.json"
+
+# --------------------
+# Глобальные состояния
+# --------------------
+loaded_model = None
+loaded_model_name: Optional[str] = None
+llm_enabled = False
+history: List[Dict[str, Any]] = []
+memory: Dict[str, Any] = {}
+
+# По умолчанию указана модель (подставлено автоматически)
+DEFAULT_MODEL_NAME = None
+# если в models/ есть ровно один файл *.pkl, используем его как default
+pkl_list = sorted(MODELS_DIR.glob("*.pkl"))
+if len(pkl_list) == 1:
+    DEFAULT_MODEL_NAME = pkl_list[0].name
+elif len(pkl_list) > 1:
+    # выберем последний по алфавиту (обычно версия)
+    DEFAULT_MODEL_NAME = pkl_list[-1].name
+
+# --------------------
+# Утилиты загрузки/сохранения
+# --------------------
+def _load_json_file(path: Path, default):
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+def _save_json_file(path: Path, obj):
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+
+# Инициализация history/memory при импорте
+history = _load_json_file(HISTORY_FILE, [])
+memory = _load_json_file(MEMORY_FILE, {})
+
+# --------------------
+# Основные функции (API)
+# --------------------
+def load_model(model_name: Optional[str] = None) -> bool:
     """
-    Проверяет и создаёт базовые каталоги и файлы.
-    Возвращает True при успехе, False при критической ошибке.
+    Загрузить модель из MODELS_DIR. Если model_name None — используем DEFAULT_MODEL_NAME или
+    последний найденный .pkl в каталоге.
+    Возвращает True при успехе.
     """
+    global loaded_model, loaded_model_name
+    if model_name is None:
+        model_name = DEFAULT_MODEL_NAME
+    if model_name is None:
+        pkl_files = sorted(MODELS_DIR.glob("*.pkl"))
+        if not pkl_files:
+            print("No .pkl model found in models/ directory.", file=sys.stderr)
+            return False
+        model_name = pkl_files[-1].name
+    model_path = MODELS_DIR / model_name
+    if not model_path.exists():
+        print(f"Model file not found: {model_path}", file=sys.stderr)
+        return False
     try:
-        # Проверить и создать папку для моделей
-        mdl_dir = MODEL_DIR if os.path.isabs(MODEL_DIR) else os.path.join(root, MODEL_DIR)
-        if not os.path.exists(mdl_dir):
-            os.makedirs(mdl_dir, exist_ok=True)
-
-        # Проверить директорию памяти/истории
-        mem_dir = os.path.dirname(MEMORY_PATH) or root
-        hist_dir = os.path.dirname(HISTORY_PATH) or root
-        if not os.path.exists(mem_dir):
-            os.makedirs(mem_dir, exist_ok=True)
-        if not os.path.exists(hist_dir):
-            os.makedirs(hist_dir, exist_ok=True)
-
-        # Создать пустые файлы, если их нет
-        for p, init in [(MEMORY_PATH, "{}"), (HISTORY_PATH, "")]:
-            path_abs = p if os.path.isabs(p) else os.path.join(root, p)
-            if not os.path.exists(path_abs):
-                with open(path_abs, "w", encoding="utf-8") as f:
-                    f.write(init)
+        loaded_model = joblib.load(model_path)
+        loaded_model_name = model_name
         return True
     except Exception as e:
-        print(f"ERROR: check_paths failed: {e}", file=sys.stderr)
+        print(f"Failed to load model: {e}", file=sys.stderr)
+        loaded_model = None
+        loaded_model_name = None
         return False
 
-def load_model(path: str = MODEL_PATH) -> Any:
+def predict(f1: float, f2: float, f3: float, use_llm: bool = False) -> Dict[str, Any]:
+    """
+    Сделать предсказание. Возвращает dict: {"prediction": int, "prob": float}
+    Добавляет запись в history.
+    """
+    global history
+    if loaded_model is None:
+        raise RuntimeError("Model not loaded. Call load_model() first.")
+    import numpy as np
+    X = np.array([[f1, f2, f3]])
+    # Попробуем predict_proba, иначе predict
+    prob = None
+    pred = None
+    try:
+        probs = loaded_model.predict_proba(X)
+        prob = float(probs[0, 1])
+        pred = int(prob >= 0.5)
+    except Exception:
+        try:
+            p = loaded_model.predict(X)
+            pred = int(p[0])
+            prob = 1.0 if pred == 1 else 0.0
+        except Exception as e:
+            raise RuntimeError(f"Model prediction failed: {e}")
+    entry = {
+        "timestamp": time.time(),
+        "inputs": {"f1": f1, "f2": f2, "f3": f3},
+        "prediction": pred,
+        "prob": prob,
+        "use_llm": bool(use_llm and llm_enabled),
+        "model": loaded_model_name,
+    }
+    history.append(entry)
+    # Сохраняем историю сразу
+    _save_json_file(HISTORY_FILE, history)
+    return {"prediction": pred, "prob": prob}
+
+def llm_on() -> None:
+    global llm_enabled
+    llm_enabled = True
+
+def llm_off() -> None:
+    global llm_enabled
+    llm_enabled = False
+
+def save_memory() -> None:
+    """
+    Сохранить текущую memory в файл.
+    """
+    _save_json_file(MEMORY_FILE, memory)
+
+def show_history() -> List[Dict[str, Any]]:
+    """
+    Сохранить и вернуть историю.
+    """
+    _save_json_file(HISTORY_FILE, history)
+    return history
+
+def get_history() -> List[Dict[str, Any]]:
+    return history
+
+def get_memory() -> Dict[str, Any]:
+    return memory
+
+# Экспортируемые имена
+__all__ = [
+    "load_model", "predict", "llm_on", "llm_off", "save_memory",
+    "show_history", "get_history", "get_memory"
+]
+
+# --------------------
+# CLI (вызовы функций)
+# --------------------
+def _cli():
+    parser = argparse.ArgumentParser(prog="chat_text_only.py")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub_load = sub.add_parser("load_model")
+    sub_load.add_argument("--model", type=str, default=None)
+
+    sub_predict = sub.add_parser("predict")
+    sub_predict.add_argument("--f1", type=float, required=True)
+    sub_predict.add_argument("--f2", type=float, required=True)
+    sub_predict.add_argument("--f3", type=float, required=True)
+    sub_predict.add_argument("--use_llm", action="store_true")
+
+    sub.add_parser("llm_on")
+    sub.add_parser("llm_off")
+    sub.add_parser("save_memory")
+    sub.add_parser("show_history")
+
+    args = parser.parse_args()
+
+    try:
+        if args.cmd == "load_model":
+            ok = load_model(args.model)
+            print("Loaded" if ok else "Load failed")
+        elif args.cmd == "predict":
+            res = predict(args.f1, args.f2, args.f3, use_llm=args.use_llm)
+            print(json.dumps(res))
+        elif args.cmd == "llm_on":
+            llm_on()
+            print("LLM enabled")
+        elif args.cmd == "llm_off":
+            llm_off()
+            print("LLM disabled")
+        elif args.cmd == "save_memory":
+            save_memory()
+            print("Memory saved")
+        elif args.cmd == "show_history":
+            h = show_history()
+            print(json.dumps(h, indent=2))
+        else:
+            parser.print_help()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+if __name__ == "__main__":
+    _cli()
     """Загружает модель (.pkl или joblib) и возвращает объект."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Model not found: {path}")
