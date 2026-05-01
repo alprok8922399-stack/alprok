@@ -1,0 +1,55 @@
+name: CI — chat_text_only smoke tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Create venv and install deps
+      run: |
+        python -m venv .venv
+        . .venv/bin/activate
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: List models and data
+      run: |
+        echo "MODELS:"
+        ls -la models || true
+        echo "DATA:"
+        ls -la data || true
+
+    - name: Run CLI smoke commands
+      run: |
+        . .venv/bin/activate
+        set -e
+        python chat_text_only.py load_model || (echo "load_model failed" && exit 2)
+        python chat_text_only.py predict --f1 0.1 --f2 0.2 --f3 0.3 || (echo "predict failed" && exit 2)
+        python chat_text_only.py llm_on
+        python chat_text_only.py llm_off
+        python chat_text_only.py save_memory
+        python chat_text_only.py show_history
+
+    - name: Upload history/memory artifacts (if any)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: chat-artifacts
+        path: |
+          data/history.json
+          data/memory.json
+          
