@@ -1,46 +1,59 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8"/>
-  <title>Chat AI</title>
+  <meta charset="utf-8" />
+  <title>Минимальный чат ИИ</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #chat { max-width: 600px; margin: 0 auto; }
-    .msg { padding:8px; border:1px solid #ddd; margin:6px 0; border-radius:6px; }
-    .user { background:#e6f7ff; text-align:right; }
-    .bot { background:#f6f6f6; }
+    body{font-family:Arial;max-width:700px;margin:2rem auto;padding:1rem}
+    #messages{border:1px solid #ddd;padding:1rem;height:300px;overflow:auto;margin-bottom:1rem}
+    .msg.user{color:#063; margin:0.5rem 0}
+    .msg.bot{color:#036; margin:0.5rem 0}
   </style>
 </head>
 <body>
-  <div id="chat">
-    <h2>Chat AI</h2>
-    <div id="messages"></div>
-    <textarea id="input" rows="3" style="width:100%"></textarea>
-    <button id="send">Отправить</button>
-  </div>
+  <h3>Минимальный чат ИИ</h3>
+  <div id="messages"></div>
+  <textarea id="input" rows="3" style="width:100%"></textarea>
+  <button id="send">Отправить</button>
+
   <script>
-    const msgs = document.getElementById('messages');
-    const input = document.getElementById('input');
-    document.getElementById('send').onclick = async () => {
-      const text = input.value.trim();
-      if (!text) return;
-      const u = document.createElement('div'); u.className='msg user'; u.textContent=text; msgs.appendChild(u);
-      input.value='';
-      try {
+    const messagesEl = document.getElementById('messages');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+
+    function append(role, text){
+      const d = document.createElement('div');
+      d.className = 'msg ' + (role==='user' ? 'user' : 'bot');
+      d.textContent = (role==='user' ? 'Вы: ' : 'ИИ: ') + text;
+      messagesEl.appendChild(d);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    async function send(){
+      const message = inputEl.value.trim();
+      if(!message) return;
+      append('user', message);
+      inputEl.value = '';
+      append('bot', '...');
+
+      try{
         const res = await fetch('/chat', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({session_id:'s1', message:text})
+          body: JSON.stringify({message})
         });
-        const j = await res.json();
-        const b = document.createElement('div'); b.className='msg bot'; b.textContent = j.reply || JSON.stringify(j);
-        msgs.appendChild(b);
-      } catch (e) {
-        const err = document.createElement('div'); err.className='msg bot'; err.textContent = 'Ошибка: '+e.message;
-        msgs.appendChild(err);
+        const data = await res.json();
+        // Replace last bot "..." with actual reply
+        const botEls = messagesEl.querySelectorAll('.msg.bot');
+        if(botEls.length) botEls[botEls.length-1].textContent = 'ИИ: ' + (data.reply || '[пустой ответ]');
+      }catch(e){
+        const botEls = messagesEl.querySelectorAll('.msg.bot');
+        if(botEls.length) botEls[botEls.length-1].textContent = 'ИИ: Ошибка соединения';
       }
-      window.scrollTo(0, document.body.scrollHeight);
-    };
+    }
+
+    sendBtn.addEventListener('click', send);
+    inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); }});
   </script>
 </body>
 </html>
