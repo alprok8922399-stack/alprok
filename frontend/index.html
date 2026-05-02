@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <title>Chat AI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #chat { max-width: 600px; margin: 0 auto; }
+    .msg { padding:8px; border:1px solid #ddd; margin:6px 0; border-radius:6px; }
+    .user { background:#e6f7ff; text-align:right; }
+    .bot { background:#f6f6f6; }
+  </style>
+</head>
+<body>
+  <div id="chat">
+    <h2>Chat AI</h2>
+    <div id="messages"></div>
+    <textarea id="input" rows="3" style="width:100%"></textarea>
+    <button id="send">Отправить</button>
+  </div>
+  <script>
+    const msgs = document.getElementById('messages');
+    const input = document.getElementById('input');
+    document.getElementById('send').onclick = async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      const u = document.createElement('div'); u.className='msg user'; u.textContent=text; msgs.appendChild(u);
+      input.value='';
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({session_id:'s1', message:text})
+        });
+        const j = await res.json();
+        const b = document.createElement('div'); b.className='msg bot'; b.textContent = j.reply || JSON.stringify(j);
+        msgs.appendChild(b);
+      } catch (e) {
+        const err = document.createElement('div'); err.className='msg bot'; err.textContent = 'Ошибка: '+e.message;
+        msgs.appendChild(err);
+      }
+      window.scrollTo(0, document.body.scrollHeight);
+    };
+  </script>
+</body>
+</html>
