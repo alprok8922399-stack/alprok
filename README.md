@@ -33,5 +33,3 @@ curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" -d '
 ### Дальше
 - Создать простой фронтенд (если требуется доработка).
 - Настроить деплой (GitHub Actions → Render/Heroku).
-
-Сохраните изменения — внизу в поле "Commit changes" укажите сообщение коммита (например «Replace README with full content») и нажмите «Commit changes».
