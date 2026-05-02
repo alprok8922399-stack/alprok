@@ -9,23 +9,30 @@ on:
       - 'backend/**'
 
 jobs:
-  lint-and-test:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install deps
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
-      - name: Run lint
+
+      - name: Lint (flake8)
         run: |
           pip install flake8
-          flake8 backend || true
-      - name: Run simple smoke test
+          flake8 --max-line-length=88 || true
+
+      - name: Run smoke test
         run: |
-          python -c "import importlib, sys; sys.path.append('backend'); import app.main; print('ok')"
+          chmod +x backend/.github-smoke-test.sh
+          cp backend/.env-example backend/.env || true
+          backend/.github-smoke-test.sh
           
