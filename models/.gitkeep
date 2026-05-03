@@ -1,1 +1,2 @@
-keep
+backend/path/to/dir/.gitkeep
+
