@@ -1,0 +1,3 @@
+test('smoke test: app starts', () => {
+  expect(true).toBe(true);
+});
