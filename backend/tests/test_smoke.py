@@ -1,13 +1,13 @@
-from fastapi.testclient import TestClient
-from backend.app.main import app
+import requests
+import os
 
-client = TestClient(app)
+BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 
-def test_smoke_chat():
-    resp = client.post("/chat", json={"session_id": "s1", "message": "ping"})
+
+def test_smoke():
+    resp = requests.post(f"{BASE_URL}/chat", json={"message": "Привет"})
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, dict)
-    # допускаем варианты поля ответа: "reply" или "message"
-    assert "reply" in data or "message" in data
-  
+    assert "reply" in data
+    assert isinstance(data["reply"], str)
+    
