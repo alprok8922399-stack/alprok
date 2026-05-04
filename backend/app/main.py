@@ -37,7 +37,7 @@ async def chat(req: ChatRequest):
         )
         text = resp.choices[0].message.content.strip()
         return ChatResponse(reply=text)
-        except Exception:
+    except Exception as e:
         # логируем исключение и возвращаем 502
+        # logger.exception("AI backend error: %s", e)  # раскомментируйте если есть logger
         raise HTTPException(status_code=502, detail="AI backend error")
-    
