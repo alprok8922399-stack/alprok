@@ -10,4 +10,3 @@ def test_smoke():
     data = resp.json()
     assert "reply" in data
     assert isinstance(data["reply"], str)
-    
