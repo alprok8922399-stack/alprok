@@ -7,12 +7,13 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
@@ -20,19 +21,29 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
+        working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          pip install -r requirements.txt
 
-      - name: Lint (flake8)
+      - name: Run flake8
+        working-directory: backend
         run: |
           pip install flake8
-          flake8 --max-line-length=88 || true
+          flake8 || { echo "flake8 failed"; exit 1; }
 
       - name: Run smoke test
+        working-directory: backend
         run: |
-          chmod +x backend/.github-smoke-test.sh
-          cp backend/.env-example backend/.env || true
-          backend/.github-smoke-test.sh
+          chmod +x ./.github-smoke-test.sh || true
+          bash ./.github-smoke-test.sh
           
